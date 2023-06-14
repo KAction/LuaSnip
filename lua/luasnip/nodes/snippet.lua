@@ -157,6 +157,42 @@ local function init_snippet_opts(opts)
 	return vim.tbl_extend("error", in_node, init_snippetNode_opts(opts))
 end
 
+-- these functions get the line up to the cursor, and the trigger, and then
+-- determine whether the trigger matches the current line.
+-- If the trigger does not match, the functions shall return nil, otherwise
+-- the matching substring and the list of captures (empty table if there aren't
+-- any).
+local trigger_matchers = {
+	plain = function(line_to_cursor, trigger)
+		if
+			line_to_cursor:sub(
+				#line_to_cursor - #trigger + 1,
+				#line_to_cursor
+			) == trigger
+		then
+			-- no captures for plain trigger.
+			return trigger, {}
+		else
+			return nil
+		end
+	end,
+	pattern = function(line_to_cursor, trigger)
+		-- capture entire trigger, must be put into match.
+		local find_res = { string.find(line_to_cursor, trigger .. "$") }
+		if #find_res > 0 then
+			local captures = {}
+			local from = find_res[1]
+			local match = line_to_cursor:sub(from, #line_to_cursor)
+			for i = 3, #find_res do
+				captures[i - 2] = find_res[i]
+			end
+			return match, captures
+		else
+			return nil
+		end
+	end
+}
+
 -- context, opts non-nil tables.
 local function init_snippet_context(context, opts)
 	local effective_context = {}
@@ -205,8 +241,20 @@ local function init_snippet_context(context, opts)
 		util.ternary(context.wordTrig ~= nil, context.wordTrig, true)
 	effective_context.hidden =
 		util.ternary(context.hidden ~= nil, context.hidden, false)
+
 	effective_context.regTrig =
 		util.ternary(context.regTrig ~= nil, context.regTrig, false)
+
+	if type(context.trigMatcher) == "function" then
+		-- if trigMatcher is function, just use that.
+		effective_context.trig_matcher = context.trigMatcher
+	else
+		-- otherwise, it is nil or string, if it is string, use it, otherwise
+		-- use "pattern" if regTrig is set, and finally fall back to "plain" if
+		-- it is not.
+		local trigger_type = util.ternary(context.trigMatcher ~= nil, context.trigMatcher, util.ternary(context.regTrig ~= nil, "pattern", "plain"))
+		effective_context.trig_matcher = trigger_matchers[trigger_type]
+	end
 
 	effective_context.condition = context.condition
 		or opts.condition
@@ -579,30 +627,7 @@ end
 
 -- returns copy of snip if it matches, nil if not.
 function Snippet:matches(line_to_cursor)
-	local from
-	local match
-	local captures = {}
-	if self.regTrig then
-		-- capture entire trigger, must be put into match.
-		local find_res = { string.find(line_to_cursor, self.trigger .. "$") }
-		if #find_res > 0 then
-			from = find_res[1]
-			match = line_to_cursor:sub(from, #line_to_cursor)
-			for i = 3, #find_res do
-				captures[i - 2] = find_res[i]
-			end
-		end
-	else
-		if
-			line_to_cursor:sub(
-				#line_to_cursor - #self.trigger + 1,
-				#line_to_cursor
-			) == self.trigger
-		then
-			from = #line_to_cursor - #self.trigger + 1
-			match = self.trigger
-		end
-	end
+	local match, captures = self.trig_matcher(line_to_cursor, self.trigger)
 
 	-- Trigger or regex didn't match.
 	if not match then
@@ -612,6 +637,8 @@ function Snippet:matches(line_to_cursor)
 	if not self.condition(line_to_cursor, match, captures) then
 		return nil
 	end
+
+	local from = #line_to_cursor - #match + 1
 
 	-- if wordTrig is set, the char before the trigger can't be \w or the
 	-- word has to start at the beginning of the line.
