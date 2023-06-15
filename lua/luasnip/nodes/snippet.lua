@@ -15,6 +15,7 @@ local snippet_collection = require("luasnip.session.snippet_collection")
 local extend_decorator = require("luasnip.util.extend_decorator")
 local source = require("luasnip.session.snippet_collection.source")
 local loader_util = require("luasnip.loaders.util")
+local trig_engines = require("luasnip.nodes.util.trig_engines")
 
 local true_func = function()
 	return true
@@ -157,42 +158,6 @@ local function init_snippet_opts(opts)
 	return vim.tbl_extend("error", in_node, init_snippetNode_opts(opts))
 end
 
--- these functions get the line up to the cursor, and the trigger, and then
--- determine whether the trigger matches the current line.
--- If the trigger does not match, the functions shall return nil, otherwise
--- the matching substring and the list of captures (empty table if there aren't
--- any).
-local trigger_matchers = {
-	plain = function(line_to_cursor, trigger)
-		if
-			line_to_cursor:sub(
-				#line_to_cursor - #trigger + 1,
-				#line_to_cursor
-			) == trigger
-		then
-			-- no captures for plain trigger.
-			return trigger, {}
-		else
-			return nil
-		end
-	end,
-	pattern = function(line_to_cursor, trigger)
-		-- capture entire trigger, must be put into match.
-		local find_res = { string.find(line_to_cursor, trigger .. "$") }
-		if #find_res > 0 then
-			local captures = {}
-			local from = find_res[1]
-			local match = line_to_cursor:sub(from, #line_to_cursor)
-			for i = 3, #find_res do
-				captures[i - 2] = find_res[i]
-			end
-			return match, captures
-		else
-			return nil
-		end
-	end
-}
-
 -- context, opts non-nil tables.
 local function init_snippet_context(context, opts)
 	local effective_context = {}
@@ -245,16 +210,18 @@ local function init_snippet_context(context, opts)
 	effective_context.regTrig =
 		util.ternary(context.regTrig ~= nil, context.regTrig, false)
 
-	if type(context.trigMatcher) == "function" then
-		-- if trigMatcher is function, just use that.
-		effective_context.trig_matcher = context.trigMatcher
+	local engine
+	if type(context.trigEngine) == "function" then
+		-- if trigEngine is function, just use that.
+		engine = context.trigEngine
 	else
-		-- otherwise, it is nil or string, if it is string, use it, otherwise
-		-- use "pattern" if regTrig is set, and finally fall back to "plain" if
-		-- it is not.
-		local trigger_type = util.ternary(context.trigMatcher ~= nil, context.trigMatcher, util.ternary(context.regTrig ~= nil, "pattern", "plain"))
-		effective_context.trig_matcher = trigger_matchers[trigger_type]
+		-- otherwise, it is nil or string, if it is string, that is the name,
+		-- otherwise use "pattern" if regTrig is set, and finally fall back to
+		-- "plain" if it is not.
+		local engine_name = util.ternary(context.trigEngine ~= nil, context.trigEngine, util.ternary(context.regTrig ~= nil, "pattern", "plain"))
+		engine = trig_engines[engine_name]
 	end
+	effective_context.trig_matcher = engine(effective_context.trigger)
 
 	effective_context.condition = context.condition
 		or opts.condition
