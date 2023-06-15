@@ -36,9 +36,9 @@ local function match_pattern(line_to_cursor, trigger)
 	end
 end
 
-local make_ecma_matcher
+local ecma_engine
 if jsregexp then
-	make_ecma_matcher = function(trig)
+	ecma_engine = function(trig)
 		local trig_compiled = jsregexp.compile(trig .. "$", "")
 
 		return function(line_to_cursor, _)
@@ -53,11 +53,30 @@ if jsregexp then
 		end
 	end
 else
-	make_ecma_matcher = function() return match_plain end
+	ecma_engine = function() return match_plain end
+end
+
+local function match_vim(line_to_cursor, trigger)
+	local matchlist = vim.fn.matchlist(line_to_cursor, trigger .. "$")
+	if #matchlist > 0 then
+		local groups = {}
+		for i = 2, 10 do
+			-- PROBLEM: vim does not differentiate between an empty ("")
+			-- and a missing capture.
+			-- Since we need to differentiate between the two (Check `:h
+			-- luasnip-variables-lsp-variables`), we assume, here, that an
+			-- empty string is an unmatched group.
+			groups[i - 1] = matchlist[i] ~= "" and matchlist[i] or nil
+		end
+		return matchlist[1], groups
+	else
+		return nil
+	end
 end
 
 return {
 	plain = function() return match_plain end,
 	pattern = function() return match_pattern end,
-	ecma = make_ecma_matcher,
+	ecma = ecma_engine,
+	vim = function() return match_vim end
 }
