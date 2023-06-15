@@ -52,6 +52,8 @@ if jsregexp then
 			end
 		end
 	end
+else
+	make_ecma_matcher = function() return match_plain end
 end
 
 return {
