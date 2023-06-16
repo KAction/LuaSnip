@@ -1325,8 +1325,6 @@ Stuff to watch out for:
   `ls.filetype_extend("<ft1>", {"<ft2>"})` leads to duplicate snippets.
 * `${VISUAL}` will be replaced by `$TM_SELECTED_TEXT` to make the snippets
   compatible with luasnip
-* We do not implement eval using \` (backtick). This may be implemented in the
-  future.
 
 ## LUA
 

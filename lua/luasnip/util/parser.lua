@@ -277,9 +277,12 @@ parse_snippet = function(context, body, tab_stops, brackets)
 	local text_start = 1
 
 	while true do
-		local next_node = string.find(body, "$", indx, true)
+		local next_node = string.find(body, "[`$]", indx)
 		if next_node then
-			if not is_escaped(body, next_node) then
+			if is_escaped(body, next_node) then
+				-- continues search at next node
+				indx = next_node + 1
+			else
 				-- insert text so far as textNode.
 				local plain_text = string.sub(body, text_start, next_node - 1)
 				if plain_text ~= "" then
@@ -287,60 +290,65 @@ parse_snippet = function(context, body, tab_stops, brackets)
 					nodes[#nodes + 1] = last_text
 				end
 
-				-- potentially find matching bracket.
-				local match_bracket = brackets[next_node + 1]
-				-- anything except text
-				if match_bracket then
-					-- nodestring excludes brackets.
-					local nodestring =
-						string.sub(body, next_node + 2, match_bracket - 1)
-					local node1, node2
-					for _, fn in ipairs(parse_functions) do
-						node1, node2 = fn(
-							nodestring,
-							tab_stops,
-							brackets_offset(brackets, -(next_node + 1))
-						)
-						if node1 then
-							break
-						end
-					end
-					if not node1 then
-						error("Unknown Syntax: " .. nodestring)
-					end
-					nodes[#nodes + 1] = node1
-					nodes[#nodes + 1] = node2
-					indx = match_bracket + 1
-					-- char after '$' is a number -> tabstop.
-				elseif
-					string.find(body, "%d", next_node + 1) == next_node + 1
-				then
-					local _, last_char, match =
-						string.find(body, "(%d+)", next_node + 1)
-					-- Add insert- or copy-function-node.
-					nodes[#nodes + 1] = simple_tabstop(match, tab_stops)
-					indx = last_char + 1
-				elseif
-					string.find(body, "%w", next_node + 1) == next_node + 1
-				then
-					local _, last_char, match =
-						string.find(body, "([%w_]+)", next_node + 1)
-					-- Add var-node
-					nodes[#nodes + 1] = simple_var(match)
-					indx = last_char + 1
+				if body:sub(next_node, next_node) == "`" then
+					local closing = string.find(body, "`", next_node + 1)
+					local expr = string.sub(body, next_node + 1, closing - 1)
+					nodes[#nodes + 1] = fNode.F(function() return vim.fn.eval(expr) end, {})
+					indx = closing + 1
+					text_start = indx
 				else
-					-- parsing as placeholder/variable/... failed, append text
-					-- to last_text.
-					local last_static_text = last_text.static_text
-					last_static_text[#last_static_text] = last_static_text[#last_static_text]
-						.. "$"
-					-- next_node is index of unescaped $.
-					indx = next_node + 1
+					-- potentially find matching bracket.
+					local match_bracket = brackets[next_node + 1]
+					-- anything except text
+					if match_bracket then
+						-- nodestring excludes brackets.
+						local nodestring =
+							string.sub(body, next_node + 2, match_bracket - 1)
+						local node1, node2
+						for _, fn in ipairs(parse_functions) do
+							node1, node2 = fn(
+								nodestring,
+								tab_stops,
+								brackets_offset(brackets, -(next_node + 1))
+							)
+							if node1 then
+								break
+							end
+						end
+						if not node1 then
+							error("Unknown Syntax: " .. nodestring)
+						end
+						nodes[#nodes + 1] = node1
+						nodes[#nodes + 1] = node2
+						indx = match_bracket + 1
+						-- char after '$' is a number -> tabstop.
+					elseif
+						string.find(body, "%d", next_node + 1) == next_node + 1
+					then
+						local _, last_char, match =
+							string.find(body, "(%d+)", next_node + 1)
+						-- Add insert- or copy-function-node.
+						nodes[#nodes + 1] = simple_tabstop(match, tab_stops)
+						indx = last_char + 1
+					elseif
+						string.find(body, "%w", next_node + 1) == next_node + 1
+					then
+						local _, last_char, match =
+							string.find(body, "([%w_]+)", next_node + 1)
+						-- Add var-node
+						nodes[#nodes + 1] = simple_var(match)
+						indx = last_char + 1
+					else
+						-- parsing as placeholder/variable/... failed, append text
+						-- to last_text.
+						local last_static_text = last_text.static_text
+						last_static_text[#last_static_text] = last_static_text[#last_static_text]
+							.. "$"
+						-- next_node is index of unescaped $.
+						indx = next_node + 1
+					end
+					text_start = indx
 				end
-				text_start = indx
-			else
-				-- continues search at next node
-				indx = next_node + 1
 			end
 		else
 			-- insert text so far as textNode.
