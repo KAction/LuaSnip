@@ -188,12 +188,36 @@ local function parse_placeholder(text, tab_stops, brackets)
 			return tab_stops[pos], i0_maybe
 		end
 	end
-	-- Parse transforms as simple copy.
+
+	-- Generate F-node from transformation syntax.
 	start, stop, match = string.find(text, "(%d+)/")
-	if start == 1 then
-		return simple_tabstop(match, tab_stops)
+	local num = tonumber(match)
+	-- Now we must parse toothpick fence into {pat}, {sub} and {flags}.
+	-- Check substitute() help.
+	local components = { {}, {}, {} }
+	local current = 1
+
+	local i = stop + 1
+	while i <= #text do
+		local c = text:sub(i, i)
+		i = i + 1
+
+		if c == "/" then
+			current = current + 1
+		elseif c == "\\" then
+			table.insert(components[current], "\\")
+			table.insert(components[current], text:sub(i, i))
+			i = i + 1
+		else
+			table.insert(components[current], c)
+		end
 	end
-	return nil
+	local pat = table.concat(components[1])
+	local sub = table.concat(components[2])
+	local flags = table.concat(components[3])
+
+	local fn = function (args) return vim.fn.substitute(args[1][1], pat, sub, flags) end
+	return fNode.F(fn, { tab_stops[num] })
 end
 
 local function parse_choice(text, tab_stops)
